@@ -40,7 +40,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           sed -i '/<?php/a\exec("python translate.py ${{ env.GENERATE_LANGUAGE_CODE }}");' classParser.php
           php sdkBuilder.php
-          find ./sdk -type f | wc -l > ./sdk/_gd-sdk-file-stamp.txt
+          find ./sdk -type f ! -name "_gd-sdk-file-stamp.txt" | wc -l > ./sdk/_gd-sdk-file-stamp.txt
           cd sdk
           zip -r -9 ../gdscript_sdk.zip ./*
 
