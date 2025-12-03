@@ -1,7 +1,5 @@
 > **AI 生成声明**：本仓库及其所有内容，包括文档和代码，均由人工智能生成。
 
-[![Build GDScript sdk and Release](https://github.com/your-username/rider-godot-doc-generator/actions/workflows/python-app.yml/badge.svg)](https://github.com/your-username/rider-godot-doc-generator/actions/workflows/python-app.yml)
-
 **中文**: 当前 | **English**: [README.md](README.md)
 
 这个项目用于生成 jetbrains rider 的 godot 插件的指定语言版本文档。
