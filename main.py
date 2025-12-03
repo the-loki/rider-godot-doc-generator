@@ -1,50 +1,17 @@
 import argparse
-import subprocess
 import os
 import polib
 import xml.etree.ElementTree as ET
 from pathlib import Path
-import shutil
 import textwrap
 
 # Constants
-GODOT_REPO_URL = "https://github.com/godotengine/godot.git"
 GODOT_DIR = "godot"
 DOC_SUBDIR = "doc"
 TRANSLATIONS_SUBDIR = "translations"
 TRANSLATABLE_XML_TAGS = ['brief_description', 'description', 'member', 'constant']
 XML_FILE_EXTENSION = "*.xml"
 PO_FILE_EXTENSION = ".po"
-
-
-def clone_godot_repo(tag):
-    """
-    Clone Godot repository with specified tag and depth 1.
-
-    Args:
-        tag: Git tag to clone
-    """
-    print(f"\nCloning Godot repository (tag: {tag}, depth: 1)...")
-
-    # Check if godot directory already exists
-    if os.path.exists(GODOT_DIR):
-        print(f"Directory '{GODOT_DIR}' already exists. Skipping clone.")
-        return
-
-    try:
-        # Clone with specific tag, depth 1, and single branch
-        subprocess.run(
-            ["git", "clone", "--branch", tag, "--depth", "1", "--single-branch", 
-             GODOT_REPO_URL, GODOT_DIR],
-            check=True
-        )
-        print(f"Successfully cloned Godot repository at tag {tag}")
-    except subprocess.CalledProcessError as e:
-        print(f"Error cloning repository: {e}")
-        exit(1)
-    except FileNotFoundError:
-        print("Error: git command not found. Please ensure git is installed and in your PATH.")
-        exit(1)
 
 
 def read_translation_file(language_code):
@@ -219,14 +186,13 @@ def translate_xml_element(element, translation_map):
         translate_xml_element(child, translation_map)
 
 
-def process_xml_file(xml_file_path, translation_map, output_directory):
+def process_xml_file(xml_file_path, translation_map):
     """
-    Process a single XML file and save the translated version.
+    Process a single XML file and replace it with the translated version.
 
     Args:
-        xml_file_path: Path to source XML file
+        xml_file_path: Path to XML file to translate
         translation_map: Dictionary mapping source to translated text
-        output_directory: Directory to save translated file
 
     Returns:
         True if successful, False otherwise
@@ -239,16 +205,8 @@ def process_xml_file(xml_file_path, translation_map, output_directory):
         # Translate all elements recursively
         translate_xml_element(root_element, translation_map)
 
-        # Calculate output path maintaining directory structure
-        godot_doc_path = Path(GODOT_DIR) / DOC_SUBDIR
-        relative_path = xml_file_path.relative_to(godot_doc_path)
-        output_file_path = Path(output_directory) / relative_path
-
-        # Ensure output directory exists
-        output_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Save translated XML with UTF-8 encoding
-        xml_tree.write(output_file_path, encoding='utf-8', xml_declaration=True)
+        # Save translated XML with UTF-8 encoding, replacing the original file
+        xml_tree.write(xml_file_path, encoding='utf-8', xml_declaration=True)
 
         return True
     except Exception as e:
@@ -256,13 +214,12 @@ def process_xml_file(xml_file_path, translation_map, output_directory):
         return False
 
 
-def translate_documentation(po_entries, output_directory="translated_doc"):
+def translate_documentation(po_entries):
     """
-    Translate all XML documentation files.
+    Translate all XML documentation files in place.
 
     Args:
         po_entries: List of PO entries from translation file
-        output_directory: Directory to save translated documentation
     """
     print(f"\nStarting documentation translation...")
 
@@ -279,27 +236,24 @@ def translate_documentation(po_entries, output_directory="translated_doc"):
         print("No XML files found to translate.")
         return
 
-    # Ensure output directory exists
-    Path(output_directory).mkdir(parents=True, exist_ok=True)
-
     # Process each XML file with progress tracking
     successful_count = 0
     total_files = len(xml_files)
 
     for index, xml_file in enumerate(xml_files, 1):
         print(f"Processing [{index}/{total_files}]: {xml_file.name}")
-        if process_xml_file(xml_file, translation_map, output_directory):
+        if process_xml_file(xml_file, translation_map):
             successful_count += 1
 
     # Print summary
-    _print_translation_summary(successful_count, total_files, output_directory)
+    _print_translation_summary(successful_count, total_files, doc_directory)
 
 
-def _print_translation_summary(successful_count, total_count, output_directory):
+def _print_translation_summary(successful_count, total_count, doc_directory):
     """Print summary of translation results."""
     print(f"\nTranslation complete!")
     print(f"  Successfully processed: {successful_count}/{total_count} files")
-    print(f"  Output directory: {output_directory}")
+    print(f"  Modified files in: {doc_directory}")
 
 
 def main():
@@ -308,30 +262,20 @@ def main():
         description="Translate Godot documentation using official translation files."
     )
     parser.add_argument(
-        "tag", 
-        type=str, 
-        help="Godot version tag (e.g., '4.0-stable', '3.5.1-stable')"
-    )
-    parser.add_argument(
-        "lang", 
-        type=str, 
+        "lang",
+        type=str,
         help="Language code for translation (e.g., 'zh_CN', 'ja', 'fr')"
     )
 
     args = parser.parse_args()
 
-    print(f"Godot version tag: {args.tag}")
     print(f"Target language: {args.lang}")
 
-    # Step 1: Clone Godot repository
-    clone_godot_repo(args.tag)
-
-    # Step 2: Read translation file
+    # Step 1: Read translation file
     po_entries = read_translation_file(args.lang)
 
-    # Step 3: Translate documentation
-    output_directory = f"translated_doc_{args.lang}"
-    translate_documentation(po_entries, output_directory)
+    # Step 2: Translate documentation in place
+    translate_documentation(po_entries)
 
 
 if __name__ == "__main__":
