@@ -6,7 +6,7 @@ from pathlib import Path
 import textwrap
 
 # Constants
-GODOT_DIR = "godot"
+GODOT_DIR = "godot-master"
 DOC_SUBDIR = "doc"
 TRANSLATIONS_SUBDIR = "translations"
 TRANSLATABLE_XML_TAGS = ['brief_description', 'description', 'member', 'constant']
