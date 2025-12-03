@@ -1,0 +1,4 @@
+# Godot Documentation Translation Tool Dependencies
+
+# PO file parser for gettext translation files
+polib==1.2.0

@@ -7,25 +7,38 @@ from pathlib import Path
 import shutil
 import textwrap
 
+# Constants
+GODOT_REPO_URL = "https://github.com/godotengine/godot.git"
+GODOT_DIR = "godot"
+DOC_SUBDIR = "doc"
+TRANSLATIONS_SUBDIR = "translations"
+TRANSLATABLE_XML_TAGS = ['brief_description', 'description', 'member', 'constant']
+XML_FILE_EXTENSION = "*.xml"
+PO_FILE_EXTENSION = ".po"
+
 
 def clone_godot_repo(tag):
-    """Clone Godot repository with specified tag and depth 1."""
-    godot_repo_url = "https://github.com/godotengine/godot.git"
-    godot_dir = "godot"
+    """
+    Clone Godot repository with specified tag and depth 1.
 
+    Args:
+        tag: Git tag to clone
+    """
     print(f"\nCloning Godot repository (tag: {tag}, depth: 1)...")
 
+    # Check if godot directory already exists
+    if os.path.exists(GODOT_DIR):
+        print(f"Directory '{GODOT_DIR}' already exists. Skipping clone.")
+        return
+
     try:
-        # Check if godot directory already exists
-        if os.path.exists(godot_dir):
-            print(f"Directory '{godot_dir}' already exists. Skipping clone.")
-        else:
-            # Clone with specific tag, depth 1, and single branch
-            subprocess.run(
-                ["git", "clone", "--branch", tag, "--depth", "1", "--single-branch", godot_repo_url, godot_dir],
-                check=True
-            )
-            print(f"Successfully cloned Godot repository at tag {tag}")
+        # Clone with specific tag, depth 1, and single branch
+        subprocess.run(
+            ["git", "clone", "--branch", tag, "--depth", "1", "--single-branch", 
+             GODOT_REPO_URL, GODOT_DIR],
+            check=True
+        )
+        print(f"Successfully cloned Godot repository at tag {tag}")
     except subprocess.CalledProcessError as e:
         print(f"Error cloning repository: {e}")
         exit(1)
@@ -34,131 +47,208 @@ def clone_godot_repo(tag):
         exit(1)
 
 
-def read_translation_file(lang):
-    """Read the .po file for the specified language from godot/doc/translations/ using polib."""
-    translations_dir = os.path.join("godot", "doc", "translations")
-    po_file_path = os.path.join(translations_dir, f"{lang}.po")
+def read_translation_file(language_code):
+    """
+    Read the .po translation file for the specified language.
+
+    Args:
+        language_code: Language code (e.g., 'zh_CN', 'en')
+
+    Returns:
+        List of translated PO entries
+    """
+    translations_dir = os.path.join(GODOT_DIR, DOC_SUBDIR, TRANSLATIONS_SUBDIR)
+    po_file_path = os.path.join(translations_dir, f"{language_code}{PO_FILE_EXTENSION}")
 
     print(f"\nReading translation file: {po_file_path}")
 
+    if not os.path.exists(po_file_path):
+        _print_translation_file_error(po_file_path, translations_dir)
+        exit(1)
+
     try:
-        if not os.path.exists(po_file_path):
-            print(f"Error: Translation file '{po_file_path}' not found.")
-            print(f"Available files in {translations_dir}:")
-            if os.path.exists(translations_dir):
-                files = [f for f in os.listdir(translations_dir) if f.endswith('.po')]
-                for f in files:
-                    print(f"  - {f}")
-            exit(1)
-
         # Parse .po file using polib
-        po = polib.pofile(po_file_path)
-
-        print(f"Successfully parsed translation file")
-        print(f"  Total entries: {len(po)}")
-        print(f"  Translated entries: {len(po.translated_entries())}")
-        print(f"  Untranslated entries: {len(po.untranslated_entries())}")
-        print(f"  Fuzzy entries: {len(po.fuzzy_entries())}")
-
-        return po.translated_entries()
+        po_file = polib.pofile(po_file_path)
+        _print_translation_statistics(po_file)
+        return po_file.translated_entries()
     except Exception as e:
         print(f"Error reading translation file: {e}")
         exit(1)
 
 
+def _print_translation_file_error(po_file_path, translations_dir):
+    """Print error message when translation file is not found."""
+    print(f"Error: Translation file '{po_file_path}' not found.")
+    print(f"Available files in {translations_dir}:")
+    if os.path.exists(translations_dir):
+        available_files = [f for f in os.listdir(translations_dir) if f.endswith(PO_FILE_EXTENSION)]
+        for file in available_files:
+            print(f"  - {file}")
+
+
+def _print_translation_statistics(po_file):
+    """Print statistics about the translation file."""
+    print(f"Successfully parsed translation file")
+    print(f"  Total entries: {len(po_file)}")
+    print(f"  Translated entries: {len(po_file.translated_entries())}")
+    print(f"  Untranslated entries: {len(po_file.untranslated_entries())}")
+    print(f"  Fuzzy entries: {len(po_file.fuzzy_entries())}")
+
+
 def create_translation_dict(po_entries):
-    """Create a dictionary from po entries for faster lookup."""
-    translation_dict = {}
+    """
+    Create a dictionary mapping source text to translated text.
+
+    Args:
+        po_entries: List of PO entries from translation file
+
+    Returns:
+        Dictionary with msgid as key and msgstr as value
+    """
+    translation_map = {}
     for entry in po_entries:
-        if entry.msgstr:  # Only include entries with translations
-            translation_dict[entry.msgid] = entry.msgstr
+        # Only include entries with non-empty translations
+        if entry.msgstr:
+            translation_map[entry.msgid] = entry.msgstr
 
-    return translation_dict
+    return translation_map
 
 
-def find_xml_files(doc_dir):
-    """Find all XML files in the doc directory."""
-    xml_files = []
-    doc_path = Path(doc_dir)
+def find_xml_files(doc_directory):
+    """
+    Find all XML files in the documentation directory recursively.
+
+    Args:
+        doc_directory: Path to documentation directory
+
+    Returns:
+        List of Path objects for all XML files found
+    """
+    doc_path = Path(doc_directory)
 
     if not doc_path.exists():
-        print(f"Error: Documentation directory '{doc_dir}' not found.")
-        return xml_files
+        print(f"Error: Documentation directory '{doc_directory}' not found.")
+        return []
 
-    for xml_file in doc_path.rglob("*.xml"):
-        xml_files.append(xml_file)
-
+    # Use list() for cleaner collection
+    xml_files = list(doc_path.rglob(XML_FILE_EXTENSION))
     return xml_files
 
 
-def get_common_indent(text):
-    lines = [line for line in text.splitlines() if line.strip()]
-    if not lines:
+def extract_common_indentation(text):
+    """
+    Extract the common indentation from a multi-line text.
+
+    Args:
+        text: Multi-line text string
+
+    Returns:
+        String containing the common indentation (spaces or tabs)
+    """
+    non_empty_lines = [line for line in text.splitlines() if line.strip()]
+    if not non_empty_lines:
         return ''
 
-    original = lines[0]  # 原始第一个非空行
-    dedent = textwrap.dedent(text)
-    dedent_line = next(line for line in dedent.splitlines() if line.strip())
+    # Get the first non-empty line with original indentation
+    first_line_with_indent = non_empty_lines[0]
 
-    # 差异就是共同缩进
-    indent = original[:len(original) - len(dedent_line)]
-    return indent
+    # Get the same line after removing common indentation
+    dedented_text = textwrap.dedent(text)
+    first_line_dedented = next(line for line in dedented_text.splitlines() if line.strip())
+
+    # The difference is the common indentation
+    indent_length = len(first_line_with_indent) - len(first_line_dedented)
+    common_indent = first_line_with_indent[:indent_length]
+
+    return common_indent
 
 
-def translate_text(text, translation_dict):
+def translate_text(text, translation_map):
+    """
+    Translate text using the translation map, preserving formatting.
+
+    Args:
+        text: Source text to translate
+        translation_map: Dictionary mapping source to translated text
+
+    Returns:
+        Translated text with preserved formatting, or original if no translation found
+    """
+    # Return empty or whitespace-only text as-is
     if not text or not text.strip():
         return text
 
-    if text in translation_dict:
-        return translation_dict[text]
+    # Try direct translation first
+    if text in translation_map:
+        return translation_map[text]
 
-    # Extract common indentation
-    text_stripped = text.strip("\n").rstrip()
-    text_placeholder = "__TRANSLATED_TEXT_PLACEHOLDER__"
-    text_wrapper = text.replace(text_stripped, text_placeholder)
+    # Try translation with indentation handling
+    stripped_text = text.strip("\n").rstrip()
+    placeholder = "__TRANSLATED_TEXT_PLACEHOLDER__"
+    text_with_placeholder = text.replace(stripped_text, placeholder)
 
-    indent = get_common_indent(text_stripped)
-    text_cleared = textwrap.dedent(text_stripped)
+    common_indent = extract_common_indentation(stripped_text)
+    dedented_text = textwrap.dedent(stripped_text)
 
-    if text_cleared in translation_dict:
-        translated = translation_dict[text_cleared]
-        translated = textwrap.indent(translated, indent)
-        translated = text_wrapper.replace(text_placeholder, translated)
-        return translated
+    if dedented_text in translation_map:
+        translated_text = translation_map[dedented_text]
+        # Re-apply the original indentation
+        translated_text = textwrap.indent(translated_text, common_indent)
+        # Restore the original text structure
+        translated_text = text_with_placeholder.replace(placeholder, translated_text)
+        return translated_text
 
+    # No translation found, return original
     return text
 
 
-def translate_xml_element(element, translation_dict):
-    tag_list = ['brief_description', 'description', 'member', 'constant']
+def translate_xml_element(element, translation_map):
+    """
+    Recursively translate text content in XML elements.
 
-    if element.tag in tag_list and element.text:
-        element.text = translate_text(element.text, translation_dict)
+    Args:
+        element: XML element to translate
+        translation_map: Dictionary mapping source to translated text
+    """
+    # Translate text content for specific tags
+    if element.tag in TRANSLATABLE_XML_TAGS and element.text:
+        element.text = translate_text(element.text, translation_map)
 
-    # Recursively process children
+    # Recursively process all child elements
     for child in element:
-        translate_xml_element(child, translation_dict)
+        translate_xml_element(child, translation_map)
 
 
-def process_xml_file(xml_file_path, translation_dict, output_dir):
-    """Process a single XML file and save the translated version."""
+def process_xml_file(xml_file_path, translation_map, output_directory):
+    """
+    Process a single XML file and save the translated version.
+
+    Args:
+        xml_file_path: Path to source XML file
+        translation_map: Dictionary mapping source to translated text
+        output_directory: Directory to save translated file
+
+    Returns:
+        True if successful, False otherwise
+    """
     try:
         # Parse XML file
-        tree = ET.parse(xml_file_path)
-        root = tree.getroot()
+        xml_tree = ET.parse(xml_file_path)
+        root_element = xml_tree.getroot()
 
-        # Translate all elements
-        translate_xml_element(root, translation_dict)
+        # Translate all elements recursively
+        translate_xml_element(root_element, translation_map)
 
-        # Calculate relative path and create output path
-        relative_path = xml_file_path.relative_to("godot/doc")
-        output_path = Path(output_dir) / relative_path
+        # Calculate output path maintaining directory structure
+        godot_doc_path = Path(GODOT_DIR) / DOC_SUBDIR
+        relative_path = xml_file_path.relative_to(godot_doc_path)
+        output_file_path = Path(output_directory) / relative_path
 
-        # Create output directory if it doesn't exist
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure output directory exists
+        output_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save translated XML
-        tree.write(output_path, encoding='utf-8', xml_declaration=True)
+        # Save translated XML with UTF-8 encoding
+        xml_tree.write(output_file_path, encoding='utf-8', xml_declaration=True)
 
         return True
     except Exception as e:
@@ -166,54 +256,82 @@ def process_xml_file(xml_file_path, translation_dict, output_dir):
         return False
 
 
-def translate_documentation(po_entries, output_dir="translated_doc"):
-    """Translate all XML files in godot/doc directory."""
+def translate_documentation(po_entries, output_directory="translated_doc"):
+    """
+    Translate all XML documentation files.
+
+    Args:
+        po_entries: List of PO entries from translation file
+        output_directory: Directory to save translated documentation
+    """
     print(f"\nStarting documentation translation...")
 
-    # Create translation dictionary for faster lookup
-    translation_dict = create_translation_dict(po_entries)
-    print(f"Created translation dictionary with {len(translation_dict)} entries")
+    # Create translation map for efficient lookup
+    translation_map = create_translation_dict(po_entries)
+    print(f"Created translation map with {len(translation_map)} entries")
 
-    # Find all XML files
-    doc_dir = os.path.join("godot", "doc")
-    xml_files = find_xml_files(doc_dir)
+    # Find all XML files in documentation directory
+    doc_directory = os.path.join(GODOT_DIR, DOC_SUBDIR)
+    xml_files = find_xml_files(doc_directory)
     print(f"Found {len(xml_files)} XML files to process")
 
     if not xml_files:
         print("No XML files found to translate.")
         return
 
-    # Create output directory
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    # Ensure output directory exists
+    Path(output_directory).mkdir(parents=True, exist_ok=True)
 
-    # Process each XML file
-    success_count = 0
-    for i, xml_file in enumerate(xml_files, 1):
-        print(f"Processing [{i}/{len(xml_files)}]: {xml_file.name}")
-        if process_xml_file(xml_file, translation_dict, output_dir):
-            success_count += 1
+    # Process each XML file with progress tracking
+    successful_count = 0
+    total_files = len(xml_files)
 
+    for index, xml_file in enumerate(xml_files, 1):
+        print(f"Processing [{index}/{total_files}]: {xml_file.name}")
+        if process_xml_file(xml_file, translation_map, output_directory):
+            successful_count += 1
+
+    # Print summary
+    _print_translation_summary(successful_count, total_files, output_directory)
+
+
+def _print_translation_summary(successful_count, total_count, output_directory):
+    """Print summary of translation results."""
     print(f"\nTranslation complete!")
-    print(f"  Successfully processed: {success_count}/{len(xml_files)} files")
-    print(f"  Output directory: {output_dir}")
+    print(f"  Successfully processed: {successful_count}/{total_count} files")
+    print(f"  Output directory: {output_directory}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Process tag and lang arguments.")
-    parser.add_argument("tag", type=str, help="The tag argument")
-    parser.add_argument("lang", type=str, help="The language argument")
+    """Main entry point for Godot documentation translation tool."""
+    parser = argparse.ArgumentParser(
+        description="Translate Godot documentation using official translation files."
+    )
+    parser.add_argument(
+        "tag", 
+        type=str, 
+        help="Godot version tag (e.g., '4.0-stable', '3.5.1-stable')"
+    )
+    parser.add_argument(
+        "lang", 
+        type=str, 
+        help="Language code for translation (e.g., 'zh_CN', 'ja', 'fr')"
+    )
 
     args = parser.parse_args()
 
-    print(f"Tag: {args.tag}")
-    print(f"Lang: {args.lang}")
+    print(f"Godot version tag: {args.tag}")
+    print(f"Target language: {args.lang}")
 
+    # Step 1: Clone Godot repository
     clone_godot_repo(args.tag)
+
+    # Step 2: Read translation file
     po_entries = read_translation_file(args.lang)
 
-    # Translate documentation and output to new folder
-    output_dir = f"translated_doc_{args.lang}"
-    translate_documentation(po_entries, output_dir)
+    # Step 3: Translate documentation
+    output_directory = f"translated_doc_{args.lang}"
+    translate_documentation(po_entries, output_directory)
 
 
 if __name__ == "__main__":
