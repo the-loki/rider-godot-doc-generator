@@ -3,12 +3,14 @@ name: Build GDScript SDK and Release
 on:
   push:
     branches:
-      - '**'
-    tags:
-      - '*'
+      - 'main'
+
 
 permissions:
   contents: write
+
+env:
+  GENERATE_LANGUAGE_CODE: zh_CN
 
 jobs:
   build:
@@ -23,7 +25,7 @@ jobs:
 
       - run: |
           sudo apt-get update
-          apt install zip unzip
+          sudo apt-get install zip unzip
           sudo apt-get install -y php-cli
 
       - run: |
@@ -36,7 +38,7 @@ jobs:
           mv requirements.txt godot-support/gdscript/php/requirements.txt
           cd godot-support/gdscript/php
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          sed -i '/<?php/a\exec("python translate.py zh_CN");' classParser.php
+          sed -i '/<?php/a\exec("python translate.py ${{ env.GENERATE_LANGUAGE_CODE }}");' classParser.php
           php sdkBuilder.php
           find ./sdk -type f | wc -l > ./sdk_gd-sdk-file-stamp.txt
           zip -r gdscript_sdk.zip ./sdk
