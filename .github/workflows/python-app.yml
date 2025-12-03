@@ -1,35 +1,68 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
-name: Python application
+name: Build GDScript SDK and Release
 
 on:
   push:
+    branches:
+      - '**'
     tags:
-      - "*"
+      - '*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.10"
-    - name: Get Tag Name
-      id: get_tag
-      run: |
-        TAG=${GITHUB_REF#refs/tags/}
-        echo "tag=${TAG}" >> $GITHUB_OUTPUT
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        python main.py ${{ steps.get_tag.outputs.tag }} zh_CN
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.10'
+
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli
+
+      - run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - run: |
+          git clone https://github.com/JetBrains/godot-support.git
+          mv main.py godot-support/gdscript/php/translate.py
+          mv requirements.txt godot-support/gdscript/php/requirements.txt
+          cd godot-support/gdscript/php
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          sed -i '/<?php/a\exec("python translate.py zh_CN");' classParser.php
+          php sdkBuilder.php
+
+      - id: check_sdk
+        run: |
+          if [ -f godot-support/gdscript/php/gdscriptsdk.tar.xz ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check_sdk.outputs.exists == 'true'
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: sdk-${{ github.run_number }}-${{ github.sha }}
+          release_name: GDScript SDK ${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - if: steps.check_sdk.outputs.exists == 'true'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./godot-support/gdscript/php/gdscriptsdk.tar.xz
+          asset_name: gdscriptsdk.tar.xz
+          asset_content_type: application/x-xz
